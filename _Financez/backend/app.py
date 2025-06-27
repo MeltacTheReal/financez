@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 from fastapi.staticfiles import StaticFiles
+from supabase import create_client, Client
 
 # Data models
 class Category(BaseModel):
@@ -107,6 +108,10 @@ app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), na
 repo = ExpenseRepository()
 category_repo = CategoryRepository()
 
+SUPABASE_URL = "https://dlyrlwdwwahychtofope.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRseXJsd2R3d2FoeWNodG9mb3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc5MjU4NTksImV4cCI6MjA2MzUwMTg1OX0.sCaAmZ0S8pG0pLoQN3T5cK-t3UXRQYtMHaobt_kORzU"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 print("THIS IS THE REAL APP.PY")
 print("CWD:", os.getcwd())
 #print("Static folder:", app.static_folder)
@@ -121,28 +126,38 @@ def home():
 # CRUD Endpoints for expenses
 @app.get('/expenses', response_model=List[Expense])
 def list_expenses():
-    return repo.list()
+    res = supabase.table("expenses").select("*", "categories(name)").execute()
+    expenses = res.data or []
+    return expenses
 
 @app.post('/expenses', response_model=Expense, status_code=201)
 def add_expense(expense: ExpenseCreate):
-    new_expense = repo.add(expense)
-    return new_expense
+    res = supabase.table("expenses").insert({
+        "amount": expense.amount,
+        "category_id": expense.category_id,
+        "date": expense.date,
+        "description": expense.description
+    }).execute()
+    return res.data[0]
 
 @app.put('/expenses/{expense_id}', response_model=Expense)
 def update_expense(expense_id: int, expense: ExpenseCreate):
-    updated = repo.update(expense_id, expense)
-    if updated:
-        return updated
-    else:
+    res = supabase.table("expenses").update({
+        "amount": expense.amount,
+        "category_id": expense.category_id,
+        "date": expense.date,
+        "description": expense.description
+    }).eq("id", expense_id).execute()
+    if not res.data:
         raise HTTPException(status_code=404, detail='Expense not found')
+    return res.data[0]
 
 @app.delete('/expenses/{expense_id}')
 def delete_expense(expense_id: int):
-    deleted = repo.delete(expense_id)
-    if deleted:
-        return {"success": True}
-    else:
+    res = supabase.table("expenses").delete().eq("id", expense_id).execute()
+    if not res.data:
         raise HTTPException(status_code=404, detail='Expense not found')
+    return {"success": True}
 
 @app.get('/ping')
 def ping():
@@ -150,26 +165,26 @@ def ping():
 
 @app.get("/categories", response_model=List[Category])
 def list_categories():
-    return category_repo.list()
+    res = supabase.table("categories").select("*").execute()
+    return res.data or []
 
 @app.post("/categories", response_model=Category, status_code=201)
 def add_category(category: CategoryCreate):
-    return category_repo.add(category)
+    res = supabase.table("categories").insert({"name": category.name}).execute()
+    return res.data[0]
 
 @app.put("/categories/{category_id}", response_model=Category)
 def update_category(category_id: int, category: CategoryCreate):
-    cat = category_repo.get(category_id)
-    if not cat:
+    res = supabase.table("categories").update({"name": category.name}).eq("id", category_id).execute()
+    if not res.data:
         raise HTTPException(status_code=404, detail="Category not found")
-    cat["name"] = category.name
-    return cat
+    return res.data[0]
 
 @app.delete("/categories/{category_id}")
 def delete_category(category_id: int):
-    cat = category_repo.get(category_id)
-    if not cat:
+    res = supabase.table("categories").delete().eq("id", category_id).execute()
+    if not res.data:
         raise HTTPException(status_code=404, detail="Category not found")
-    category_repo.categories.remove(cat)
     return {"success": True}
 
 # To run: uvicorn app:app --host 0.0.0.0 --port 8001
