@@ -7,20 +7,48 @@ import os
 from fastapi.staticfiles import StaticFiles
 
 # Data models
+class Category(BaseModel):
+    id: int
+    name: str
+
+class CategoryCreate(BaseModel):
+    name: str
+
 class Expense(BaseModel):
     id: int
     amount: float
-    category: str
+    category_id: int
     date: str
     description: Optional[str] = ""
 
 class ExpenseCreate(BaseModel):
     amount: float
-    category: str
+    category_id: int
     date: str
     description: Optional[str] = ""
 
 # Data access abstraction
+class CategoryRepository:
+    def __init__(self):
+        self.categories = [
+            {"id": 1, "name": "Food"},
+            {"id": 2, "name": "Transport"},
+            {"id": 3, "name": "Utilities"},
+        ]
+        self.next_id = 4
+
+    def list(self):
+        return self.categories
+
+    def get(self, category_id):
+        return next((c for c in self.categories if c["id"] == category_id), None)
+
+    def add(self, data):
+        category = {"id": self.next_id, "name": data.name}
+        self.categories.append(category)
+        self.next_id += 1
+        return category
+
 class ExpenseRepository:
     def __init__(self):
         self.expenses = []
@@ -36,7 +64,7 @@ class ExpenseRepository:
         expense = {
             'id': self.next_id,
             'amount': data.amount,
-            'category': data.category,
+            'category_id': data.category_id,
             'date': data.date,
             'description': data.description or ''
         }
@@ -49,7 +77,7 @@ class ExpenseRepository:
         if expense:
             expense.update({
                 'amount': data.amount if data.amount is not None else expense['amount'],
-                'category': data.category if data.category is not None else expense['category'],
+                'category_id': data.category_id if data.category_id is not None else expense['category_id'],
                 'date': data.date if data.date is not None else expense['date'],
                 'description': data.description if data.description is not None else expense['description']
             })
@@ -77,6 +105,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), name="static")
 
 repo = ExpenseRepository()
+category_repo = CategoryRepository()
 
 print("THIS IS THE REAL APP.PY")
 print("CWD:", os.getcwd())
@@ -118,5 +147,29 @@ def delete_expense(expense_id: int):
 @app.get('/ping')
 def ping():
     return {"message": "pong"}
+
+@app.get("/categories", response_model=List[Category])
+def list_categories():
+    return category_repo.list()
+
+@app.post("/categories", response_model=Category, status_code=201)
+def add_category(category: CategoryCreate):
+    return category_repo.add(category)
+
+@app.put("/categories/{category_id}", response_model=Category)
+def update_category(category_id: int, category: CategoryCreate):
+    cat = category_repo.get(category_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    cat["name"] = category.name
+    return cat
+
+@app.delete("/categories/{category_id}")
+def delete_category(category_id: int):
+    cat = category_repo.get(category_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    category_repo.categories.remove(cat)
+    return {"success": True}
 
 # To run: uvicorn app:app --host 0.0.0.0 --port 8001
