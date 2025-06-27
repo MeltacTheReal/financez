@@ -25,7 +25,18 @@ _Financez/
    ```
    (from the `backend` directory)
 
-### 2. Frontend
+### 2. Backend (FastAPI)
+
+Install dependencies:
+
+    pip install fastapi uvicorn
+
+Run the backend server:
+
+    cd _Financez/backend
+    uvicorn app:app --host 0.0.0.0 --port 8001
+
+### Frontend
 
 Open `frontend/index.html` in your browser. (For API calls to work, the backend must be running on the same host and port, or you may need to adjust CORS/settings.)
 
