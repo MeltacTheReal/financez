@@ -1,5 +1,9 @@
+function __initApp() {
 const API_URL = 'http://127.0.0.1:8001/expenses';
 const CATEGORY_API_URL = 'http://127.0.0.1:8001/categories';
+const LOGIN_API_URL = 'http://127.0.0.1:8001/auth/login';
+const SIGNUP_API_URL = 'http://127.0.0.1:8001/auth/signup';
+const RESET_PWD_API_URL = 'http://127.0.0.1:8001/auth/reset-password';
 
 const expensesTable = document.getElementById('expenses-table');
 const expenseModal = document.getElementById('expense-modal');
@@ -30,14 +34,174 @@ const cancelDeleteCategoryBtn = document.getElementById('cancel-delete-category'
 const confirmDeleteCategoryBtn = document.getElementById('confirm-delete-category');
 let deletingCategoryId = null;
 
+// Auth elements/state
+const loginModal = document.getElementById('login-modal');
+const loginForm = document.getElementById('login-form');
+const loginEmail = document.getElementById('login-email');
+const loginPassword = document.getElementById('login-password');
+const loginError = document.getElementById('login-error');
+const logoutBtn = document.getElementById('logout-btn');
+const toggleAuthBtn = document.getElementById('toggle-auth');
+const authTitle = document.getElementById('auth-title');
+const authSubmit = document.getElementById('auth-submit');
+const forgotPwdBtn = document.getElementById('forgot-password');
+let isSignup = false;
+let accessToken = localStorage.getItem('access_token') || null;
+
+// Handle Supabase email redirect tokens in URL hash
+(function handleEmailRedirect() {
+    if (!window.location.hash) return;
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const type = params.get('type');
+    const token = params.get('access_token');
+    const refresh = params.get('refresh_token');
+    if (!type || !token) return;
+    history.replaceState(null, '', window.location.pathname);
+    if (type === 'signup') {
+        localStorage.setItem('access_token', token);
+        accessToken = token;
+    } else if (type === 'recovery') {
+        const newPwd = window.prompt('Enter new password:');
+        if (newPwd) {
+            fetch('http://127.0.0.1:8001/auth/update-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ access_token: token, refresh_token: refresh, new_password: newPwd })
+            }).then(async res => {
+                if (!res.ok) throw new Error(await res.text());
+                alert('Password updated. Please login.');
+            }).catch(err => alert('Password update failed: ' + err.message));
+        }
+    }
+})();
+
+function authHeader() {
+    return accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
+}
+
+function ensureAuthenticated() {
+    if (!accessToken) {
+        loginModal?.classList.remove('hidden');
+        addExpenseBtn.disabled = true;
+        adminCategoriesBtn.disabled = true;
+    } else {
+        loginModal?.classList.add('hidden');
+        addExpenseBtn.disabled = false;
+        adminCategoriesBtn.disabled = false;
+        logoutBtn?.classList.remove('hidden');
+    }
+}
+
+logoutBtn && (logoutBtn.onclick = function() {
+    localStorage.removeItem('access_token');
+    accessToken = null;
+    ensureAuthenticated();
+    expensesTable.innerHTML = '';
+});
+
+loginForm && loginForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    loginError?.classList.add('hidden');
+    const body = { email: loginEmail.value, password: loginPassword.value };
+    const url = isSignup ? SIGNUP_API_URL : LOGIN_API_URL;
+    console.log(isSignup ? 'Attempting signup' : 'Attempting login', body.email);
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    })
+    .then(async res => {
+        let payload = {};
+        try { payload = await res.json(); } catch (_) {}
+        if (!res.ok) {
+            throw new Error(payload.detail || (isSignup ? 'Signup failed' : 'Login failed'));
+        }
+        if (isSignup) {
+            // After signup, auto-switch to login mode with message
+            isSignup = false;
+            authTitle.textContent = 'Sign in';
+            authSubmit.textContent = 'Login';
+            toggleAuthBtn.textContent = 'Create account';
+            loginError.textContent = 'Account created. Please sign in.';
+            loginError.classList.remove('hidden');
+            console.log('Signup successful for', body.email);
+            return;
+        }
+        const token = payload.access_token;
+        if (!token) throw new Error('No token returned');
+        accessToken = token;
+        localStorage.setItem('access_token', accessToken);
+        loginModal?.classList.add('hidden');
+        logoutBtn?.classList.remove('hidden');
+        console.log('Login successful');
+        fetchCategories().then(fetchExpenses);
+    })
+    .catch((err) => {
+        console.error('Auth error:', err);
+        loginError.textContent = err.message;
+        loginError?.classList.remove('hidden');
+    });
+});
+
+toggleAuthBtn && (toggleAuthBtn.onclick = function() {
+    isSignup = !isSignup;
+    if (isSignup) {
+        authTitle.textContent = 'Create account';
+        authSubmit.textContent = 'Sign up';
+        toggleAuthBtn.textContent = 'Have an account? Sign in';
+    } else {
+        authTitle.textContent = 'Sign in';
+        authSubmit.textContent = 'Login';
+        toggleAuthBtn.textContent = 'Create account';
+    }
+    loginError.classList.add('hidden');
+});
+
+forgotPwdBtn && (forgotPwdBtn.onclick = function() {
+    loginError.classList.add('hidden');
+    const email = loginEmail.value.trim();
+    if (!email) {
+        loginError.textContent = 'Enter your email to reset password';
+        loginError.classList.remove('hidden');
+        return;
+    }
+    fetch(RESET_PWD_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+    }).then(async res => {
+        if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || 'Failed to send reset email');
+        }
+        loginError.textContent = 'Password reset email sent (check inbox).';
+        loginError.classList.remove('hidden');
+    }).catch(err => {
+        loginError.textContent = err.message;
+        loginError.classList.remove('hidden');
+    });
+});
+
 let editingId = null;
 let deleteId = null;
 let categories = [];
 let categoryMap = {};
 
 function fetchCategories() {
-    return fetch(CATEGORY_API_URL)
-        .then(res => res.json())
+    return fetch(CATEGORY_API_URL, { headers: { ...authHeader() } })
+        .then(async res => {
+            if (res.status === 401) {
+                localStorage.removeItem('access_token');
+                accessToken = null;
+                ensureAuthenticated();
+                throw new Error('Unauthorized');
+            }
+            if (!res.ok) {
+                const t = await res.text();
+                throw new Error('Categories load failed: ' + t);
+            }
+            return res.json();
+        })
         .then(data => {
             categories = data;
             categoryMap = {};
@@ -50,6 +214,9 @@ function fetchCategories() {
                 option.textContent = cat.name;
                 select.appendChild(option);
             });
+        })
+        .catch(err => {
+            console.error(err);
         });
 }
 
@@ -93,11 +260,24 @@ document.addEventListener('keydown', function(e) {
 });
 
 function fetchExpenses() {
-    fetch(API_URL)
-        .then(res => res.json())
+    fetch(API_URL, { headers: { ...authHeader() } })
+        .then(async res => {
+            if (res.status === 401) {
+                localStorage.removeItem('access_token');
+                accessToken = null;
+                ensureAuthenticated();
+                throw new Error('Unauthorized');
+            }
+            if (!res.ok) {
+                const t = await res.text();
+                throw new Error('Expenses load failed: ' + t);
+            }
+            return res.json();
+        })
         .then(renderExpenses)
         .catch(err => {
             expensesTable.innerHTML = `<tr><td colspan="5" class="text-red-600">Error loading expenses</td></tr>`;
+            console.error(err);
         });
 }
 
@@ -134,7 +314,7 @@ expenseForm.onsubmit = function(e) {
     if (editingId) {
         fetch(`${API_URL}/${editingId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeader() },
             body: JSON.stringify(data)
         })
         .then(() => {
@@ -144,7 +324,7 @@ expenseForm.onsubmit = function(e) {
     } else {
         fetch(API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeader() },
             body: JSON.stringify(data)
         })
         .then(() => {
@@ -155,14 +335,20 @@ expenseForm.onsubmit = function(e) {
 };
 
 window.editExpense = function(id) {
-    fetch(`${API_URL}`)
-        .then(res => res.json())
+    fetch(`${API_URL}`, { headers: { ...authHeader() } })
+        .then(async res => {
+            if (!res.ok) throw new Error('Failed to load expenses');
+            return res.json();
+        })
         .then(expenses => {
             const exp = expenses.find(e => e.id === id);
             if (exp) {
                 editingId = id;
                 openModal(true, exp);
             }
+        })
+        .catch(err => {
+            console.error(err);
         });
 };
 
@@ -190,7 +376,7 @@ document.addEventListener('keydown', function(e) {
 
 confirmDeleteBtn.onclick = function() {
     if (deleteId) {
-        fetch(`${API_URL}/${deleteId}`, { method: 'DELETE' })
+        fetch(`${API_URL}/${deleteId}`, { method: 'DELETE', headers: { ...authHeader() } })
             .then(() => {
                 if (editingId === deleteId) {
                     closeModal();
@@ -248,7 +434,7 @@ editCategoryForm.onsubmit = function(e) {
     if (!newName || editingCategoryId === null) return;
     fetch(`${CATEGORY_API_URL}/${editingCategoryId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ name: newName })
     })
     .then(() => {
@@ -276,7 +462,7 @@ document.addEventListener('keydown', function(e) {
 });
 confirmDeleteCategoryBtn.onclick = function() {
     if (!deletingCategoryId) return;
-    fetch(`${CATEGORY_API_URL}/${deletingCategoryId}`, { method: 'DELETE' })
+    fetch(`${CATEGORY_API_URL}/${deletingCategoryId}`, { method: 'DELETE', headers: { ...authHeader() } })
     .then(() => {
         closeDeleteCategoryModal();
         renderCategoryList();
@@ -317,7 +503,7 @@ addCategoryForm.onsubmit = function(e) {
     if (!name) return;
     fetch(CATEGORY_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ name })
     })
     .then(() => {
@@ -327,4 +513,14 @@ addCategoryForm.onsubmit = function(e) {
     });
 };
 
-fetchCategories().then(fetchExpenses); 
+ensureAuthenticated();
+if (accessToken) {
+    fetchCategories().then(fetchExpenses);
+}
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', __initApp);
+} else {
+    __initApp();
+}

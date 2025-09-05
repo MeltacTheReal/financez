@@ -1,4 +1,6 @@
 fastapi
 uvicorn
 pydantic
-supabase 
+supabase
+python-jose[cryptography]
+httpx
