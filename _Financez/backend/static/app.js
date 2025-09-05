@@ -1,9 +1,11 @@
 function __initApp() {
-const API_URL = 'http://127.0.0.1:8001/expenses';
-const CATEGORY_API_URL = 'http://127.0.0.1:8001/categories';
-const LOGIN_API_URL = 'http://127.0.0.1:8001/auth/login';
-const SIGNUP_API_URL = 'http://127.0.0.1:8001/auth/signup';
-const RESET_PWD_API_URL = 'http://127.0.0.1:8001/auth/reset-password';
+// Use current hostname and port for API calls (works on localhost and mobile)
+const BASE_URL = `${window.location.protocol}//${window.location.host}`;
+const API_URL = `${BASE_URL}/expenses`;
+const CATEGORY_API_URL = `${BASE_URL}/categories`;
+const LOGIN_API_URL = `${BASE_URL}/auth/login`;
+const SIGNUP_API_URL = `${BASE_URL}/auth/signup`;
+const RESET_PWD_API_URL = `${BASE_URL}/auth/reset-password`;
 
 const expensesTable = document.getElementById('expenses-table');
 const expenseModal = document.getElementById('expense-modal');
@@ -63,7 +65,7 @@ let accessToken = localStorage.getItem('access_token') || null;
     } else if (type === 'recovery') {
         const newPwd = window.prompt('Enter new password:');
         if (newPwd) {
-            fetch('http://127.0.0.1:8001/auth/update-password', {
+            fetch(`${BASE_URL}/auth/update-password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ access_token: token, refresh_token: refresh, new_password: newPwd })
@@ -131,8 +133,7 @@ loginForm && loginForm.addEventListener('submit', function(e) {
         if (!token) throw new Error('No token returned');
         accessToken = token;
         localStorage.setItem('access_token', accessToken);
-        loginModal?.classList.add('hidden');
-        logoutBtn?.classList.remove('hidden');
+        ensureAuthenticated();
         console.log('Login successful');
         fetchCategories().then(fetchExpenses);
     })
@@ -293,10 +294,10 @@ function renderExpenses(expenses) {
             <td class="px-4 py-2 text-right">${exp.amount}</td>
             <td class="px-4 py-2 text-right">${categoryMap[exp.category_id] || exp.category_id}</td>
             <td class="px-4 py-2 text-right">${exp.date}</td>
-            <td class="px-4 py-2 text-right">${exp.description || ''}</td>
-            <td class="px-4 py-2 text-right">
-                <button class="text-blue-600 mr-2" onclick="editExpense(${exp.id})">Edit</button>
-                <button class="text-red-600" onclick="deleteExpense(${exp.id})">Delete</button>
+            <td class="px-2 sm:px-4 py-2 text-right">${exp.description || ''}</td>
+            <td class="px-2 sm:px-4 py-2 text-right whitespace-nowrap">
+                <button class="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 mr-1 sm:mr-2" title="Edit" aria-label="Edit" onclick="editExpense(${exp.id})">✏️</button>
+                <button class="inline-flex items-center justify-center text-red-600 hover:text-red-800" title="Delete" aria-label="Delete" onclick="deleteExpense(${exp.id})">🗑️</button>
             </td>
         `;
         expensesTable.appendChild(tr);
