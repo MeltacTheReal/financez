@@ -29,7 +29,23 @@ class ExpenseCreate(BaseModel):
     description: Optional[str] = ""
 
 # Data access abstraction
-class CategoryRepository:
+class CategoryRepositoryBase:
+    def list(self) -> List[Category]:
+        raise NotImplementedError
+
+    def get(self, category_id: int) -> Optional[Category]:
+        raise NotImplementedError
+
+    def add(self, data: CategoryCreate) -> Category:
+        raise NotImplementedError
+
+    def update(self, category_id: int, data: CategoryCreate) -> Category:
+        raise NotImplementedError
+
+    def delete(self, category_id: int) -> None:
+        raise NotImplementedError
+
+class InMemoryCategoryRepository(CategoryRepositoryBase):
     def __init__(self):
         self.categories = [
             {"id": 1, "name": "Food"},
@@ -48,6 +64,19 @@ class CategoryRepository:
         category = {"id": self.next_id, "name": data.name}
         self.categories.append(category)
         self.next_id += 1
+        return category
+
+    def update(self, category_id: int, data: CategoryCreate):
+        category = self.get(category_id)
+        if not category:
+            return None
+        category.update({"name": data.name})
+        return category
+
+    def delete(self, category_id: int):
+        category = self.get(category_id)
+        if category:
+            self.categories.remove(category)
         return category
 
 class ExpenseRepository:
@@ -90,6 +119,30 @@ class ExpenseRepository:
             self.expenses.remove(expense)
         return expense
 
+class SupabaseCategoryRepository(CategoryRepositoryBase):
+    def __init__(self, client: Client):
+        self.client = client
+
+    def list(self):
+        res = self.client.table("categories").select("*").execute()
+        return res.data or []
+
+    def get(self, category_id: int):
+        res = self.client.table("categories").select("*").eq("id", category_id).single().execute()
+        return res.data
+
+    def add(self, data: CategoryCreate):
+        res = self.client.table("categories").insert({"name": data.name}).execute()
+        return res.data[0]
+
+    def update(self, category_id: int, data: CategoryCreate):
+        res = self.client.table("categories").update({"name": data.name}).eq("id", category_id).execute()
+        return res.data[0] if res.data else None
+
+    def delete(self, category_id: int):
+        res = self.client.table("categories").delete().eq("id", category_id).execute()
+        return res.data[0] if res.data else None
+
 # FastAPI app
 base_dir = os.path.abspath(os.path.dirname(__file__))
 app = FastAPI()
@@ -106,11 +159,11 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), name="static")
 
 repo = ExpenseRepository()
-category_repo = CategoryRepository()
 
 SUPABASE_URL = "https://dlyrlwdwwahychtofope.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRseXJsd2R3d2FoeWNodG9mb3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc5MjU4NTksImV4cCI6MjA2MzUwMTg1OX0.sCaAmZ0S8pG0pLoQN3T5cK-t3UXRQYtMHaobt_kORzU"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+category_repo: CategoryRepositoryBase = SupabaseCategoryRepository(supabase)
 
 print("THIS IS THE REAL APP.PY")
 print("CWD:", os.getcwd())
@@ -165,25 +218,25 @@ def ping():
 
 @app.get("/categories", response_model=List[Category])
 def list_categories():
-    res = supabase.table("categories").select("*").execute()
-    return res.data or []
+    categories = category_repo.list()
+    return categories
 
 @app.post("/categories", response_model=Category, status_code=201)
 def add_category(category: CategoryCreate):
-    res = supabase.table("categories").insert({"name": category.name}).execute()
-    return res.data[0]
+    created = category_repo.add(category)
+    return created
 
 @app.put("/categories/{category_id}", response_model=Category)
 def update_category(category_id: int, category: CategoryCreate):
-    res = supabase.table("categories").update({"name": category.name}).eq("id", category_id).execute()
-    if not res.data:
+    updated = category_repo.update(category_id, category)
+    if not updated:
         raise HTTPException(status_code=404, detail="Category not found")
-    return res.data[0]
+    return updated
 
 @app.delete("/categories/{category_id}")
 def delete_category(category_id: int):
-    res = supabase.table("categories").delete().eq("id", category_id).execute()
-    if not res.data:
+    deleted = category_repo.delete(category_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"success": True}
 
