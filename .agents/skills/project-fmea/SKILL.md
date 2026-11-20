@@ -34,4 +34,5 @@ Erstelle für jeden identifizierten Fehlermodus einen Eintrag nach den Kriterien
 ## Leitplanken & Regeln
 - **Keine Halluzinationen:** Jeder Fehlermodus muss durch konkrete Dateien, Funktionen oder Konfigurationsdateien belegt sein.
 - **Skalierung bei großen Repos:** Bei sehr großen Monorepos zuerst nur die Kern-Domäne analysieren und am Ende vorschlagen, welche Sub-Module als Nächstes vertieft werden sollten.
-- **Output-Format:** Nutze für die gesamte Antwort exakt die Struktur und Tabellen-Spalten aus `references/report-template.md`. Erstelle für jedes `HIGH`-Risiko zusätzlich einen Eintrag in Abschnitt 4 (Detail-Tickets).
+- **Datei-Output (Pflicht):** Schreibe den fertigen FMEA-Report **nicht** als langen Text in den Chat, sondern speichere ihn direkt als Markdown-Datei im Repository unter `docs/fmea/FMEA-REPORT-YYYY-MM-DD.md` (erstelle den Ordner `docs/fmea/` falls nötig). Gib im Chat danach nur eine kurze Bestätigung mit dem Dateipfad und den Top-3-Risiken aus.
+- **Report-Format:** Nutze für den Inhalt der Datei exakt die Struktur und Tabellen-Spalten aus `references/report-template.md`. Erstelle für jedes `HIGH`-Risiko zusätzlich einen Eintrag in Abschnitt 4 (Detail-Tickets).
